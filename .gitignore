@@ -33,11 +33,10 @@ venv/
 *.swo
 
 # Project specific
-wavs/*.wav
+
 !wavs/.gitkeep
 outputs/
-*.wav
-*.mp3
+
 
 # HuggingFace cache
 .cache/

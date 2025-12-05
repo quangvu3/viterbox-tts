@@ -33,6 +33,17 @@ except ImportError:
 
 
 REPO_ID = "dolly-vn/viterbox"
+WAVS_DIR = Path("wavs")
+
+
+def get_random_voice() -> Optional[Path]:
+    """Get a random voice file from wavs folder"""
+    if WAVS_DIR.exists():
+        voices = list(WAVS_DIR.glob("*.wav"))
+        if voices:
+            import random
+            return random.choice(voices)
+    return None
 
 
 def normalize_text(text: str, language: str = "vi") -> str:
@@ -419,12 +430,16 @@ class Viterbox:
         Returns:
             Audio tensor (1, samples) at 24kHz
         """
-        # Prepare conditioning if reference provided
+        # Prepare conditioning - use random voice if no audio_prompt and no conds
         if audio_prompt is not None:
             self.prepare_conditionals(audio_prompt, exaggeration)
-        
-        if self.conds is None:
-            raise ValueError("No conditioning available. Provide audio_prompt or load model with default conds.")
+        elif self.conds is None:
+            # Try to use a random voice from wavs folder
+            random_voice = get_random_voice()
+            if random_voice is not None:
+                self.prepare_conditionals(random_voice, exaggeration)
+            else:
+                raise ValueError("No reference audio! Add .wav files to wavs/ folder or provide audio_prompt.")
         
         # Normalize text (convert numbers, abbreviations to words for Vietnamese)
         text = normalize_text(text, language)

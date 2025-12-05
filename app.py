@@ -11,6 +11,10 @@ import gradio as gr
 
 warnings.filterwarnings('ignore')
 
+import tempfile, os
+
+os.environ["GRADIO_TEMP_DIR"] = tempfile.gettempdir() + "/my_gradio_tmp"
+os.makedirs(os.environ["GRADIO_TEMP_DIR"], exist_ok=True)
 from viterbox import Viterbox
 
 # Sample sentences
@@ -52,6 +56,14 @@ def list_voices() -> list[str]:
     return []
 
 
+def get_random_voice() -> str:
+    """Get a random voice file from wavs folder"""
+    voices = list_voices()
+    if voices:
+        return random.choice(voices)
+    return None
+
+
 def generate_speech(
     text: str,
     language: str,
@@ -65,11 +77,11 @@ def generate_speech(
     if not text.strip():
         return None, "❌ Please enter some text"
     
-    # Get reference audio path
-    ref_path = reference_audio if reference_audio else None
+    # Get reference audio path - use random voice if not provided
+    ref_path = reference_audio if reference_audio else get_random_voice()
     
-    if ref_path is None and MODEL.conds is None:
-        return None, "❌ Please provide reference audio"
+    if ref_path is None:
+        return None, "❌ No reference audio! Add .wav files to wavs/ folder"
     
     try:
         # Generate

@@ -85,7 +85,7 @@ pip install -r requirements.txt
 ### Cài đặt với pip
 
 ```bash
-pip install viterbox
+pip install -e .
 ```
 
 ---
@@ -142,7 +142,7 @@ tts.save_audio(audio, "output.wav")
 
 ```bash
 # Tạo audio đơn giản
-python inference.py --text "Xin chào!" --output output.wav
+python inference.py --text "Xin chào ạ, em là trợ lý ảo của bạn, em có thể giúp gì cho anh ạ?" --output output.wav
 
 # Với voice cloning và các tham số
 python inference.py \
@@ -211,7 +211,7 @@ Model được host trên HuggingFace Hub: [`dolly-vn/viterbox`](https://hugging
 | File | Mô tả | Kích thước |
 |------|-------|------------|
 | `t3_ml24ls_v2.safetensors` | T3 model (fine-tuned) | ~2GB |
-| `s3gen.pt` | S3Gen vocoder | ~500MB |
+| `s3gen.pt` | S3Gen vocoder | ~1GB |
 | `ve.pt` | Voice Encoder | ~20MB |
 | `tokenizer_vi_expanded.json` | Tokenizer với vocab tiếng Việt | ~50KB |
 | `conds.pt` | Default voice conditioning | ~1MB |

@@ -93,16 +93,13 @@ Model được fine-tune trên **3,000+ giờ** dữ liệu tiếng Việt chấ
 
 ### Cài đặt
 
-```bash
-pip install viterbox
-```
 
 Hoặc từ source:
 
 ```bash
 git clone https://github.com/dolly-vn/viterbox.git
 cd viterbox
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### Sử dụng cơ bản
@@ -166,20 +163,6 @@ audio = tts.generate(
 | `sentence_pause_ms` | int | 500 | Thời gian nghỉ giữa các câu (ms) |
 | `crossfade_ms` | int | 50 | Thời gian crossfade khi ghép audio (ms) |
 
----
-
-## 📁 Model Files
-
-| File | Description | Size |
-|------|-------------|------|
-| `t3_ml24ls_v2.safetensors` | T3 Text-to-Token model | ~2.0 GB |
-| `s3gen.pt` | S3Gen Flow-matching Vocoder | ~500 MB |
-| `ve.pt` | Voice Encoder | ~20 MB |
-| `tokenizer_vi_expanded.json` | Tokenizer with Vietnamese vocab | ~50 KB |
-| `conds.pt` | Default voice conditioning | ~1 MB |
-
----
-
 ## ⚙️ System Requirements
 
 | Requirement | Minimum | Recommended |
@@ -188,20 +171,6 @@ audio = tts.generate(
 | CUDA | 11.8+ | 12.0+ |
 | RAM | 8 GB | 16 GB |
 | VRAM | 6 GB | 8 GB+ |
-
----
-
-## 📈 Evaluation
-
-### MOS (Mean Opinion Score)
-
-| Model | Vietnamese | English |
-|-------|------------|---------|
-| **Viterbox** | **4.2** | 3.9 |
-| Chatterbox (base) | 3.5 | 4.1 |
-| VITS-Vietnamese | 3.8 | - |
-
-*MOS được đánh giá trên tập test 100 câu, 10 người đánh giá*
 
 ---
 
