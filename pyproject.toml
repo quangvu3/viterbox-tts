@@ -34,6 +34,7 @@ dependencies = [
     "numpy>=1.24.0",
     "einops>=0.7.0",
     "conformer>=0.3.2",
+    "soe-vinorm>=0.3.2",
 ]
 
 [project.optional-dependencies]

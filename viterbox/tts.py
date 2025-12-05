@@ -23,8 +23,26 @@ from .models.s3tokenizer import S3_SR, drop_invalid_tokens
 from .models.voice_encoder import VoiceEncoder
 from .models.tokenizers import MTLTokenizer
 
+try:
+    from soe_vinorm import SoeNormalizer
+    _normalizer = SoeNormalizer()
+    HAS_VINORM = True
+except ImportError:
+    HAS_VINORM = False
+    _normalizer = None
+
 
 REPO_ID = "dolly-vn/viterbox"
+
+
+def normalize_text(text: str, language: str = "vi") -> str:
+    """Normalize Vietnamese text (numbers, abbreviations, etc.)"""
+    if language == "vi" and HAS_VINORM and _normalizer is not None:
+        try:
+            return _normalizer.normalize(text)
+        except Exception:
+            return text
+    return text
 
 
 def _split_text_to_sentences(text: str) -> List[str]:
@@ -407,6 +425,9 @@ class Viterbox:
         
         if self.conds is None:
             raise ValueError("No conditioning available. Provide audio_prompt or load model with default conds.")
+        
+        # Normalize text (convert numbers, abbreviations to words for Vietnamese)
+        text = normalize_text(text, language)
         
         if split_sentences:
             # Split text into sentences
