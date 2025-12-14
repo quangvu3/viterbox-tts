@@ -87,6 +87,68 @@ def trim_silence(audio: np.ndarray, sr: int, top_db: int = 30) -> np.ndarray:
     return trimmed
 
 
+def apply_fade_out(audio: np.ndarray, sr: int, fade_duration: float = 0.01) -> np.ndarray:
+    """
+    Apply smooth fade-out to prevent click artifacts at the end of audio.
+    
+    Args:
+        audio: Audio array
+        sr: Sample rate
+        fade_duration: Fade duration in seconds (default 10ms)
+    
+    Returns:
+        Audio with fade-out applied
+    """
+    if len(audio) == 0:
+        return audio
+    
+    fade_samples = int(fade_duration * sr)
+    fade_samples = min(fade_samples, len(audio))  # Don't fade more than audio length
+    
+    if fade_samples <= 0:
+        return audio
+    
+    # Create fade-out curve (linear)
+    fade_curve = np.linspace(1.0, 0.0, fade_samples)
+    
+    # Apply fade to end of audio
+    audio_copy = audio.copy()
+    audio_copy[-fade_samples:] = audio_copy[-fade_samples:] * fade_curve
+    
+    return audio_copy
+
+
+def apply_fade_in(audio: np.ndarray, sr: int, fade_duration: float = 0.005) -> np.ndarray:
+    """
+    Apply smooth fade-in to prevent click artifacts at the start of audio.
+    
+    Args:
+        audio: Audio array
+        sr: Sample rate
+        fade_duration: Fade duration in seconds (default 5ms)
+    
+    Returns:
+        Audio with fade-in applied
+    """
+    if len(audio) == 0:
+        return audio
+    
+    fade_samples = int(fade_duration * sr)
+    fade_samples = min(fade_samples, len(audio))
+    
+    if fade_samples <= 0:
+        return audio
+    
+    # Create fade-in curve (linear)
+    fade_curve = np.linspace(0.0, 1.0, fade_samples)
+    
+    # Apply fade to start of audio
+    audio_copy = audio.copy()
+    audio_copy[:fade_samples] = audio_copy[:fade_samples] * fade_curve
+    
+    return audio_copy
+
+
 def crossfade_concat(audios: List[np.ndarray], sr: int, fade_ms: int = 50, pause_ms: int = 500) -> np.ndarray:
     """
     Concatenate audio segments with crossfading and optional pause between sentences.
@@ -225,7 +287,11 @@ class Viterbox:
         
     @classmethod
     def from_pretrained(cls, device: str = "cuda") -> 'Viterbox':
-        """Load model from HuggingFace Hub"""
+        """Load model from HuggingFace Hub to local pretrained directory"""
+        # Tải về thư mục pretrained/ cục bộ trong dự án
+        local_pretrained_dir = Path(__file__).parent.parent / "pretrained"
+        local_pretrained_dir.mkdir(parents=True, exist_ok=True)
+        
         ckpt_dir = Path(
             snapshot_download(
                 repo_id=REPO_ID,
@@ -478,8 +544,14 @@ class Viterbox:
                     repetition_penalty=repetition_penalty,
                 )
                 
-                # Trim silence from each segment
-                audio_np = trim_silence(audio_np, self.sr, top_db=30)
+                # Trim silence from each segment (use less aggressive threshold)
+                audio_np = trim_silence(audio_np, self.sr, top_db=20)
+                
+                # Apply fade-out to prevent click at end of each segment
+                audio_np = apply_fade_out(audio_np, self.sr, fade_duration=0.01)  # 10ms fade-out
+                
+                # Apply fade-in to prevent click at start
+                audio_np = apply_fade_in(audio_np, self.sr, fade_duration=0.005)  # 5ms fade-in
                 
                 if len(audio_np) > 0:
                     audio_segments.append(audio_np)
@@ -487,6 +559,10 @@ class Viterbox:
             # Merge with crossfading and pause
             if audio_segments:
                 merged = crossfade_concat(audio_segments, self.sr, fade_ms=crossfade_ms, pause_ms=sentence_pause_ms)
+                
+                # Apply final fade-out to prevent click at very end
+                merged = apply_fade_out(merged, self.sr, fade_duration=0.015)  # 15ms fade-out
+                
                 return torch.from_numpy(merged).unsqueeze(0)
             else:
                 return torch.zeros(1, self.sr)  # 1 second of silence as fallback
