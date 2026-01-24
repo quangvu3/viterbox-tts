@@ -100,7 +100,8 @@ DEFAULT_SOUNDTRACK_DURATION = 10.0
 DEFAULT_FADE_OUT_DURATION = 5.0
 TTS_PADDING_SECONDS = 0.5
 TTS_FADE_MS = 20
-MAX_CHUNK_CHARS = 190
+CROSSFADE_MS = 20
+MAX_CHUNK_CHARS = 150
 MIN_WORDS_PER_CHUNK = 6
 
 
@@ -304,6 +305,8 @@ def clear_speaker_cache(speaker_id: str = None):
 def apply_fade(audio: np.ndarray, fade_in_ms: int, fade_out_ms: int, sample_rate: int) -> np.ndarray:
     """Apply fade-in and fade-out to audio to prevent clicks.
 
+    Uses cosine-based curves for smoother transitions than linear fades.
+
     Args:
         audio: Input audio array
         fade_in_ms: Fade-in duration in milliseconds
@@ -319,17 +322,62 @@ def apply_fade(audio: np.ndarray, fade_in_ms: int, fade_out_ms: int, sample_rate
     if len(audio) <= fade_in_samples + fade_out_samples:
         return audio
 
-    # Fade in
+    # Cosine fade-in (smoother than linear)
     if fade_in_samples > 0:
-        fade_in = np.linspace(0.0, 1.0, fade_in_samples, dtype=np.float32)
-        audio[:fade_in_samples] *= fade_in
+        fade_curve = (np.cos(np.linspace(np.pi, 0, fade_in_samples)) + 1) / 2
+        audio[:fade_in_samples] *= fade_curve.astype(np.float32)
 
-    # Fade out
+    # Cosine fade-out
     if fade_out_samples > 0:
-        fade_out = np.linspace(1.0, 0.0, fade_out_samples, dtype=np.float32)
-        audio[-fade_out_samples:] *= fade_out
+        fade_curve = (np.cos(np.linspace(0, np.pi, fade_out_samples)) + 1) / 2
+        audio[-fade_out_samples:] *= fade_curve.astype(np.float32)
 
     return audio
+
+
+def crossfade_concat_tts(audios: List[np.ndarray], sr: int, fade_ms: int = 20) -> np.ndarray:
+    """Concatenate TTS audio segments with crossfading.
+
+    Uses cosine-based crossfade for smooth transitions between segments,
+    preventing clicks at boundaries.
+
+    Args:
+        audios: List of audio arrays to concatenate
+        sr: Sample rate
+        fade_ms: Crossfade duration in milliseconds
+
+    Returns:
+        Concatenated audio with crossfading applied
+    """
+    if not audios:
+        return np.array([], dtype=np.float32)
+    if len(audios) == 1:
+        return audios[0]
+
+    fade_samples = int(sr * fade_ms / 1000)
+    result = audios[0].copy()
+
+    for i in range(1, len(audios)):
+        next_audio = audios[i]
+        if len(result) < fade_samples or len(next_audio) < fade_samples:
+            # Segments too short for crossfade, just concatenate
+            result = np.concatenate([result, next_audio])
+            continue
+
+        # Cosine crossfade (smoother than linear)
+        fade_out = (np.cos(np.linspace(np.pi, 0, fade_samples)) + 1) / 2
+        fade_in = (np.cos(np.linspace(0, np.pi, fade_samples)) + 1) / 2
+
+        result_end = result[-fade_samples:] * fade_out.astype(np.float32)
+        next_start = next_audio[:fade_samples] * fade_in.astype(np.float32)
+
+        result = np.concatenate([
+            result[:-fade_samples],
+            result_end + next_start,
+            next_audio[fade_samples:]
+        ])
+
+    return result
 
 
 def split_text_into_chunks(text: str, speaker_id: str, max_chars: int = MAX_CHUNK_CHARS) -> List[TextChunk]:
@@ -562,6 +610,8 @@ def process_tagged_text(
 ) -> Tuple[np.ndarray, int]:
     """Process tagged text and generate audio.
 
+    Uses crossfade between TTS segments for smooth transitions.
+
     Args:
         tagged_text: Input text with tags
         language: Language code
@@ -579,7 +629,8 @@ def process_tagged_text(
 
     logger.info(f"Processing {len(chunks)} chunks")
 
-    audio_segments: List[np.ndarray] = []
+    tts_segments: List[np.ndarray] = []  # TTS segments for crossfade concatenation
+    non_tts_segments: List[Tuple[str, np.ndarray, bool]] = []  # (type, audio, is_overlay)
     current_voice = default_voice
 
     for i, chunk in enumerate(chunks):
@@ -597,29 +648,27 @@ def process_tagged_text(
             for j, sub_chunk in enumerate(sub_chunks):
                 logger.info(f"    Chunk {j+1}: {sub_chunk.text[:50]}..." if len(sub_chunk.text) > 50 else f"    Chunk {j+1}: {sub_chunk.text}")
                 audio = synthesize_text_chunk(sub_chunk.text, sub_chunk.voice, language, temperature)
-                audio_segments.append(('tts', audio))
+                tts_segments.append(audio)
 
         elif isinstance(chunk, SilenceChunk):
             logger.info(f"  Silence: {chunk.duration}s")
             audio = generate_silence(chunk.duration)
-            audio_segments.append(('silence', audio))
+            non_tts_segments.append(('silence', audio, False))
 
         elif isinstance(chunk, SoundtrackChunk):
             logger.info(f"  Soundtrack: {chunk.duration}s (fade: {chunk.fade_out}s, overlay: {chunk.overlay})")
             audio = load_soundtrack(chunk.duration, chunk.fade_out)
-            audio_segments.append(('soundtrack', audio, chunk.overlay))
+            non_tts_segments.append(('soundtrack', audio, chunk.overlay))
 
-    # Combine segments - handle overlay for soundtracks
-    final_audio = None
+    # Combine TTS segments with crossfade
+    if tts_segments:
+        final_audio = crossfade_concat_tts(tts_segments, DEFAULT_SAMPLE_RATE, CROSSFADE_MS)
+    else:
+        final_audio = np.array([], dtype=np.float32)
 
-    for seg in audio_segments:
-        if len(seg) == 3:
-            seg_type, audio, is_overlay = seg
-        else:
-            seg_type, audio = seg
-            is_overlay = False
-
-        if final_audio is None:
+    # Add non-TTS segments (silence, soundtracks)
+    for seg_type, audio, is_overlay in non_tts_segments:
+        if len(final_audio) == 0:
             final_audio = audio
         elif is_overlay and seg_type == 'soundtrack':
             # Overlay soundtrack on the previous segment
@@ -628,7 +677,7 @@ def process_tagged_text(
             # Concatenate segments sequentially
             final_audio = np.concatenate([final_audio, audio])
 
-    if final_audio is None:
+    if len(final_audio) == 0:
         return np.array([], dtype=np.float32), DEFAULT_SAMPLE_RATE
 
     return final_audio, DEFAULT_SAMPLE_RATE
