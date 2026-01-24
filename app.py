@@ -77,17 +77,19 @@ def generate_speech(
     cfg_weight: float,
     temperature: float,
     sentence_pause: float,
+    dereverberation: bool,
+    dereverberation_strength: float,
 ):
     """Generate speech from text"""
     if not text.strip():
         return None, "❌ Please enter some text"
-    
+
     # Get reference audio path - use random voice if not provided
     ref_path = reference_audio if reference_audio else get_random_voice()
-    
+
     if ref_path is None:
         return None, "❌ No reference audio! Add .wav files to wavs/ folder"
-    
+
     try:
         # Generate
         wav = MODEL.generate(
@@ -98,6 +100,8 @@ def generate_speech(
             cfg_weight=cfg_weight,
             temperature=temperature,
             sentence_pause_ms=int(sentence_pause * 1000),  # Convert seconds to ms
+            dereverberation=dereverberation,
+            dereverberation_strength=dereverberation_strength,
         )
         
         # Convert to numpy
@@ -207,6 +211,11 @@ with gr.Blocks(
                 temperature = gr.Slider(0.1, 1.0, 0.8, step=0.05, label="Temperature", info="Variation")
             
             sentence_pause = gr.Slider(0.0, 2.0, 0.5, step=0.1, label="Sentence Pause (s)", info="Pause between sentences")
+
+            gr.HTML('<div class="section-title" style="margin-top: 0.75rem;">🎛️ Post-Processing</div>')
+
+            dereverberation = gr.Checkbox(value=True, label="Dereverberation", info="Reduce room/hall effects")
+            dereverberation_strength = gr.Slider(0.0, 1.0, 0.5, step=0.05, label="Dereverb Strength", info="Processing intensity")
     
     # Generate button
     generate_btn = gr.Button("🔊 Generate Speech", variant="primary", size="lg", elem_classes=["generate-btn"])
@@ -229,7 +238,7 @@ with gr.Blocks(
     
     generate_btn.click(
         fn=generate_speech,
-        inputs=[text_input, language, ref_audio, exaggeration, cfg_weight, temperature, sentence_pause],
+        inputs=[text_input, language, ref_audio, exaggeration, cfg_weight, temperature, sentence_pause, dereverberation, dereverberation_strength],
         outputs=[output_audio, status_text]
     )
 

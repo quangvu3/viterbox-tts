@@ -265,32 +265,94 @@ def apply_fade_out(audio: np.ndarray, sr: int, fade_duration: float = 0.01) -> n
 def apply_fade_in(audio: np.ndarray, sr: int, fade_duration: float = 0.005) -> np.ndarray:
     """
     Apply smooth fade-in to prevent click artifacts at the start of audio.
-    
+
     Args:
         audio: Audio array
         sr: Sample rate
         fade_duration: Fade duration in seconds (default 5ms)
-    
+
     Returns:
         Audio with fade-in applied
     """
     if len(audio) == 0:
         return audio
-    
+
     fade_samples = int(fade_duration * sr)
     fade_samples = min(fade_samples, len(audio))
-    
+
     if fade_samples <= 0:
         return audio
-    
+
     # Create fade-in curve (linear)
     fade_curve = np.linspace(0.0, 1.0, fade_samples)
-    
+
     # Apply fade to start of audio
     audio_copy = audio.copy()
     audio_copy[:fade_samples] = audio_copy[:fade_samples] * fade_curve
-    
+
     return audio_copy
+
+
+def apply_dereverberation(
+    audio: np.ndarray,
+    sr: int,
+    strength: float = 0.5,
+) -> np.ndarray:
+    """
+    Apply spectral gating to reduce room/hall effects.
+
+    Args:
+        audio: Audio array (1D numpy)
+        sr: Sample rate
+        strength: Blend factor (0.0 = original, 1.0 = fully processed)
+
+    Returns:
+        Dereverberated audio
+    """
+    from scipy.ndimage import uniform_filter1d
+
+    if len(audio) == 0 or strength <= 0.0:
+        return audio
+
+    # STFT parameters
+    n_fft = 2048
+    hop_length = 512
+
+    # Compute STFT
+    stft = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
+    mag = np.abs(stft)
+    phase = np.angle(stft)
+
+    # Estimate reverb/noise floor from low-energy time frames
+    # Reverb tail typically has lower energy than direct sound
+    frame_energy = np.mean(mag, axis=0)
+    threshold = np.percentile(frame_energy, 30)  # Bottom 30% as reverb
+
+    # Create attenuation mask for low-energy frames
+    mask = np.ones_like(mag, dtype=np.float32)
+    mask[:, frame_energy < threshold] = 1.0 - strength
+
+    # Smooth mask across time to prevent artifacts
+    mask = uniform_filter1d(mask, size=3, axis=1)
+
+    # Apply mask
+    clean_stft = mag * mask * np.exp(1j * phase)
+
+    # Reconstruct audio
+    dereverbed = librosa.istft(clean_stft, hop_length=hop_length)
+
+    # Handle length mismatch
+    if len(dereverbed) > len(audio):
+        dereverbed = dereverbed[:len(audio)]
+    elif len(dereverbed) < len(audio):
+        dereverbed = np.pad(dereverbed, (0, len(audio) - len(dereverbed)))
+
+    # Blend with original
+    if strength >= 1.0:
+        return dereverbed.astype(audio.dtype)
+    else:
+        blended = (1.0 - strength) * audio + strength * dereverbed
+        return blended.astype(audio.dtype)
 
 
 def crossfade_concat(audios: List[np.ndarray], sr: int, fade_ms: int = 50, pause_ms: int = 500) -> np.ndarray:
@@ -633,16 +695,17 @@ class Viterbox:
         exaggeration: float = 0.5,
         cfg_weight: float = 0.5,
         temperature: float = 0.8,
-
         top_p: float = 1.0,
         repetition_penalty: float = 2.0,
         split_sentences: bool = True,
         crossfade_ms: int = 50,
         sentence_pause_ms: int = 500,
+        dereverberation: bool = True,
+        dereverberation_strength: float = 0.5,
     ) -> torch.Tensor:
         """
         Generate speech from text.
-        
+
         Args:
             text: Input text to synthesize
             language: Language code ('vi' or 'en')
@@ -655,7 +718,9 @@ class Viterbox:
             split_sentences: Whether to split text by punctuation and generate separately
             crossfade_ms: Crossfade duration in milliseconds when merging sentences
             sentence_pause_ms: Pause duration between sentences in milliseconds (default 500ms)
-            
+            dereverberation: Whether to apply spectral dereverberation (default True)
+            dereverberation_strength: Strength of dereverberation (0.0 - 1.0, default 0.5)
+
         Returns:
             Audio tensor (1, samples) at 24kHz
         """
@@ -713,10 +778,14 @@ class Viterbox:
             # Merge with crossfading and pause
             if audio_segments:
                 merged = crossfade_concat(audio_segments, self.sr, fade_ms=crossfade_ms, pause_ms=sentence_pause_ms)
-                
+
+                # Apply dereverberation if enabled
+                if dereverberation:
+                    merged = apply_dereverberation(merged, self.sr, strength=dereverberation_strength)
+
                 # Apply final fade-out to prevent click at very end
                 merged = apply_fade_out(merged, self.sr, fade_duration=0.015)  # 15ms fade-out
-                
+
                 return torch.from_numpy(merged).unsqueeze(0)
             else:
                 return torch.zeros(1, self.sr)  # 1 second of silence as fallback
@@ -730,6 +799,11 @@ class Viterbox:
                 top_p=top_p,
                 repetition_penalty=repetition_penalty,
             )
+
+            # Apply dereverberation if enabled
+            if dereverberation:
+                audio_np = apply_dereverberation(audio_np, self.sr, strength=dereverberation_strength)
+
             return torch.from_numpy(audio_np).unsqueeze(0)
     
     def save_audio(self, audio: torch.Tensor, path: Union[str, Path], trim_silence: bool = True):
