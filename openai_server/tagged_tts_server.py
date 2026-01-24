@@ -454,28 +454,6 @@ def load_soundtrack(
         return generate_silence(duration, sample_rate)
 
 
-def overlay_audio(base: np.ndarray, overlay: np.ndarray) -> np.ndarray:
-    """Overlay overlay audio onto base audio.
-
-    Args:
-        base: Base audio array
-        overlay: Audio to overlay
-
-    Returns:
-        Mixed audio
-    """
-    if len(overlay) > len(base):
-        # Extend base if overlay is longer
-        base = np.pad(base, (0, len(overlay) - len(base)), mode='constant')
-    elif len(base) > len(overlay):
-        # Extend overlay if base is longer
-        overlay = np.pad(overlay, (0, len(base) - len(overlay)), mode='constant')
-
-    # Simple mix (average to prevent clipping)
-    mixed = (base + overlay) / 2.0
-    return mixed
-
-
 def process_tagged_text(
     tagged_text: str,
     language: str,
@@ -525,17 +503,14 @@ def process_tagged_text(
             audio = load_soundtrack(chunk.duration, chunk.fade_out)
             audio_segments.append(('soundtrack', audio))
 
-    # Combine segments - soundtrack overlays TTS, others concatenate
+    # Combine segments - concatenate all sequentially
     final_audio = None
 
     for seg_type, audio in audio_segments:
         if final_audio is None:
             final_audio = audio
-        elif seg_type == 'soundtrack':
-            # Overlay soundtrack on existing audio
-            final_audio = overlay_audio(final_audio, audio)
         else:
-            # Concatenate silence/TTS
+            # Concatenate all segments sequentially (silence, TTS, soundtrack)
             final_audio = np.concatenate([final_audio, audio])
 
     if final_audio is None:
