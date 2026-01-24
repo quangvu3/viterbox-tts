@@ -176,12 +176,14 @@ def parse_tags(text: str, default_voice: str) -> List[Chunk]:
 
         if silence_seconds is not None:
             chunks.append(SilenceChunk(duration=float(silence_seconds)))
-        elif match.group(0).lower().startswith('[soundtrack'):
+        elif voice_id is not None:
+            # [speaker_id] tag - switch voice for subsequent text
+            current_voice = voice_id
+        else:
+            # Must be [soundtrack] or [soundtrack overlay] (no duration)
             duration = float(soundtrack_seconds) if soundtrack_seconds else DEFAULT_SOUNDTRACK_DURATION
             is_overlay = 'overlay' in match.group(0).lower()
             chunks.append(SoundtrackChunk(duration=duration, overlay=is_overlay))
-        elif voice_id is not None:
-            current_voice = voice_id
 
         last_end = match.end()
 
