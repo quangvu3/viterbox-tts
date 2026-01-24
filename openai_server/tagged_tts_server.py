@@ -10,11 +10,13 @@ Processes tagged text directly with support for:
 Uses the same OpenAI-compatible /v1/audio/speech endpoint format.
 """
 
+import copy
 import os
 import sys
 import time
 import tempfile
 import random
+import threading
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
@@ -127,6 +129,9 @@ viterbox_model = None
 # Speaker conditioning cache: speaker_id -> TTSConds
 speaker_conditionals_cache: dict = {}
 
+# Thread lock for safe conditionals access
+conds_lock = threading.Lock()
+
 def load_model():
     global viterbox_model
     viterbox_model = Viterbox.from_pretrained(
@@ -140,6 +145,7 @@ load_model()
 speakers_dir = f"{APP_DIR}/speakers"
 soundtracks_dir = f"{APP_DIR}/soundtracks"
 default_speaker_id = "storyteller_1"
+last_used_speaker_id = "storyteller_1"  # Track last used speaker for untagged text
 
 # Thread pool for audio generation
 executor = ThreadPoolExecutor(max_workers=4)
@@ -368,14 +374,31 @@ def synthesize_text_chunk(
     # Get cached conditionals (this extracts and caches if not already cached)
     conditionals = get_speaker_conditionals(speaker_id, exaggeration=exaggeration)
 
+    # Clone conditionals to avoid race conditions during generation
+    cloned_conds = copy.deepcopy(conditionals)
+
+    # Move tensors to model's device
+    device = viterbox_model.device
+    cloned_conds.t3.speaker_emb = cloned_conds.t3.speaker_emb.to(device)
+    if cloned_conds.t3.cond_prompt_speech_tokens is not None:
+        cloned_conds.t3.cond_prompt_speech_tokens = cloned_conds.t3.cond_prompt_speech_tokens.to(device)
+    if cloned_conds.t3.emotion_adv is not None:
+        cloned_conds.t3.emotion_adv = cloned_conds.t3.emotion_adv.to(device)
+
+    # Set conditionals on model so generate() uses the correct speaker (thread-safe)
+    with conds_lock:
+        logger.debug(f"Setting cloned conds on device: {device}")
+        viterbox_model.conds = cloned_conds
+
     # Generate with Viterbox using cached conditionals
+    logger.debug(f"Generating with lang={lang_code}, speaker={speaker_id}")
     wav_tensor = viterbox_model.generate(
         text=text,
         language=lang_code,
         temperature=temperature,
         cfg_weight=0.5,
         repetition_penalty=2.0,
-        split_sentences=True,
+        split_sentences=False,
         sentence_pause_ms=500,
         dereverberation=True,
         dereverberation_strength=0.5,
@@ -601,84 +624,61 @@ def synthesize_speech(input_text, speaker_id, temperature=0.8, language='vi'):
 
 async def handle_speech_request(request):
     """Handles the /v1/audio/speech endpoint with tag support."""
-    global default_speaker_id
+    global default_speaker_id, last_used_speaker_id
 
     try:
         request_data = await request.json()
         text_to_speak = request_data.get('text')
         language = request_data.get('language', 'Tiếng Việt')
-        speaker_id = request_data.get('speaker', default_speaker_id)
+        speaker_id = request_data.get('speaker', last_used_speaker_id)
         temperature = request_data.get('temperature', 0.8)
 
         if not text_to_speak:
             return web.json_response({"error": "Missing or 'text' field"}, status=400)
 
-        # Check if text contains tags
-        has_tags = ALL_TAGS.search(text_to_speak) is not None
+        # Check if text contains speaker tags (group 3 is speaker_id in regex)
+        speaker_tag_pattern = re.compile(r'\[[a-zA-Z_][a-zA-Z0-9_]*\]', re.IGNORECASE)
+        has_speaker_tags = bool(speaker_tag_pattern.search(text_to_speak))
 
-        if has_tags:
-            logger.info(f"Detected tags in input, using tagged processing")
-            logger.info(f"Input: {text_to_speak[:100]}..." if len(text_to_speak) > 100 else f"Input: {text_to_speak}")
+        if not has_speaker_tags:
+            # No speaker tags - prepend the speaker from request or last used
+            effective_speaker = speaker_id if speaker_id else last_used_speaker_id
+            logger.info(f"No speaker tags, using speaker: {effective_speaker}")
+            text_to_speak = f"[{effective_speaker}]{text_to_speak}"
 
-            # Validate at least one speaker exists
+        logger.info(f"Input: {text_to_speak[:100]}..." if len(text_to_speak) > 100 else f"Input: {text_to_speak}")
+
+        # Validate at least one speaker exists
+        try:
+            get_speaker_audio_path(speaker_id)
+        except ValueError:
             try:
-                get_speaker_audio_path(speaker_id)
+                get_speaker_audio_path(default_speaker_id)
+                speaker_id = default_speaker_id
             except ValueError:
-                try:
-                    get_speaker_audio_path(default_speaker_id)
-                    speaker_id = default_speaker_id
-                except ValueError:
-                    return web.json_response({"error": "No reference audio found for any speaker"}, status=400)
+                return web.json_response({"error": "No reference audio found for any speaker"}, status=400)
 
-            # Map language to code
-            lang_code = language_dict.get(language, 'vi')
+        # Map language to code
+        lang_code = language_dict.get(language, 'vi')
 
-            # Process tagged text
-            loop = asyncio.get_event_loop()
-            wav_array, sample_rate = await loop.run_in_executor(
-                executor,
-                process_tagged_text,
-                text_to_speak,
-                lang_code,
-                speaker_id,
-                temperature
-            )
+        # Process tagged text
+        loop = asyncio.get_event_loop()
+        wav_array, sample_rate = await loop.run_in_executor(
+            executor,
+            process_tagged_text,
+            text_to_speak,
+            lang_code,
+            speaker_id,
+            temperature
+        )
 
-            if len(wav_array) == 0:
-                return web.json_response({"error": "Failed to generate audio"}, status=500)
+        if len(wav_array) == 0:
+            return web.json_response({"error": "Failed to generate audio"}, status=500)
 
-            # Update default speaker from last TextChunk
-            for chunk in parse_tags(text_to_speak, speaker_id):
-                if isinstance(chunk, TextChunk):
-                    default_speaker_id = chunk.voice
-
-        else:
-            # Regular processing (no tags)
-            try:
-                ref_path = get_speaker_audio_path(speaker_id)
-            except ValueError:
-                try:
-                    ref_path = get_speaker_audio_path(default_speaker_id)
-                    speaker_id = default_speaker_id
-                except ValueError:
-                    return web.json_response({"error": "No reference audio found for any speaker"}, status=400)
-
-            logger.info(f"Using speaker: {speaker_id}")
-
-            # Map language to code
-            lang_code = language_dict.get(language, 'vi')
-
-            # Generate speech
-            sample_rate, wav_array = await asyncio.get_event_loop().run_in_executor(
-                executor,
-                synthesize_speech,
-                text_to_speak,
-                speaker_id,
-                temperature,
-                lang_code
-            )
-
-            default_speaker_id = speaker_id
+        # Update last_used_speaker_id from last TextChunk
+        for chunk in parse_tags(text_to_speak, speaker_id):
+            if isinstance(chunk, TextChunk):
+                last_used_speaker_id = chunk.voice
 
         # Save and return audio
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
