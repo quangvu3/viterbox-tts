@@ -18,3 +18,7 @@ resemble-perth==1.0.1
 spacy-pkuseg
 pykakasi==2.3.0
 omegaconf==2.3.0
+aiohttp
+underthesea
+deepfilternet
+langdetect
