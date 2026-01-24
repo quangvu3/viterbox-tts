@@ -36,6 +36,8 @@ from langdetect import detect
 import soundfile as sf
 import librosa
 
+from sentence import merge_sentences_balanced
+
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(APP_DIR)
 
@@ -98,6 +100,8 @@ DEFAULT_SOUNDTRACK_DURATION = 10.0
 DEFAULT_FADE_OUT_DURATION = 5.0
 TTS_PADDING_SECONDS = 0.5
 TTS_FADE_MS = 20
+MAX_CHUNK_CHARS = 190
+MIN_WORDS_PER_CHUNK = 6
 
 
 @dataclass
@@ -328,6 +332,53 @@ def apply_fade(audio: np.ndarray, fade_in_ms: int, fade_out_ms: int, sample_rate
     return audio
 
 
+def split_text_into_chunks(text: str, speaker_id: str, max_chars: int = MAX_CHUNK_CHARS) -> List[TextChunk]:
+    """Split text into chunks under max_chars, preserving speaker ID.
+
+    Args:
+        text: Input text to split
+        speaker_id: Speaker ID to assign to all chunks
+        max_chars: Maximum characters per chunk (default: 190)
+
+    Returns:
+        List of TextChunk objects with the same speaker_id
+    """
+    if not text or not text.strip():
+        return []
+
+    # Tokenize into sentences using underthesea
+    sentences = sent_tokenize(text)
+
+    # If only one sentence and it's within limit, return as single chunk
+    if len(sentences) == 1 and len(sentences[0]) <= max_chars:
+        return [TextChunk(voice=speaker_id, text=sentences[0].strip())]
+
+    # Merge short sentences using merge_sentences_balanced
+    merged_sentences = merge_sentences_balanced(
+        sentences,
+        min_words=MIN_WORDS_PER_CHUNK,
+        max_chars=max_chars
+    )
+
+    # Create TextChunk for each merged sentence
+    chunks = []
+    for sentence in merged_sentences:
+        sentence = sentence.strip()
+        if sentence:
+            # Ensure chunk doesn't exceed max_chars (split if necessary)
+            if len(sentence) > max_chars:
+                from sentence import split_sentence
+                sub_parts = split_sentence(sentence, max_text_length=max_chars)
+                for part in sub_parts:
+                    part = part.strip()
+                    if part:
+                        chunks.append(TextChunk(voice=speaker_id, text=part))
+            else:
+                chunks.append(TextChunk(voice=speaker_id, text=sentence))
+
+    return chunks
+
+
 def generate_silence(duration: float, sample_rate: int = DEFAULT_SAMPLE_RATE) -> np.ndarray:
     """Generate silence of specified duration.
 
@@ -537,10 +588,16 @@ def process_tagged_text(
         if isinstance(chunk, TextChunk):
             current_voice = chunk.voice
             logger.info(f"  Voice: {chunk.voice}")
-            logger.info(f"  Text: {chunk.text[:50]}..." if len(chunk.text) > 50 else f"  Text: {chunk.text}")
+            logger.info(f"  Original Text: {chunk.text[:50]}..." if len(chunk.text) > 50 else f"  Original Text: {chunk.text}")
 
-            audio = synthesize_text_chunk(chunk.text, chunk.voice, language, temperature)
-            audio_segments.append(('tts', audio))
+            # Split text into chunks under MAX_CHUNK_CHARS
+            sub_chunks = split_text_into_chunks(chunk.text, chunk.voice, MAX_CHUNK_CHARS)
+            logger.info(f"  Split into {len(sub_chunks)} chunk(s)")
+
+            for j, sub_chunk in enumerate(sub_chunks):
+                logger.info(f"    Chunk {j+1}: {sub_chunk.text[:50]}..." if len(sub_chunk.text) > 50 else f"    Chunk {j+1}: {sub_chunk.text}")
+                audio = synthesize_text_chunk(sub_chunk.text, sub_chunk.voice, language, temperature)
+                audio_segments.append(('tts', audio))
 
         elif isinstance(chunk, SilenceChunk):
             logger.info(f"  Silence: {chunk.duration}s")
