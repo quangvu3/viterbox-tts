@@ -83,11 +83,11 @@ def lang_detect(text):
     except:
         return 'vi'
 
-# Tag regex pattern - same as tagged_tts.py
+# Tag regex pattern - supports overlay keyword for soundtracks
 ALL_TAGS = re.compile(
-    r'\[silence\s+(\d+)s?\]|'           # [silence Ns]
-    r'\[soundtrack(?:\s+(\d+)s?)?\]|'   # [soundtrack] or [soundtrack Ns]
-    r'\[([a-zA-Z_][a-zA-Z0-9_]*)\]',    # [speaker_id]
+    r'\[silence\s+(\d+)s?\]|'                       # [silence Ns]
+    r'\[soundtrack(?:\s+(\d+)s?)?(?:\s+overlay)?\]|'  # [soundtrack], [soundtrack Ns], [soundtrack overlay], [soundtrack Ns overlay]
+    r'\[([a-zA-Z_][a-zA-Z0-9_]*)\]',                # [speaker_id]
     re.IGNORECASE
 )
 
@@ -116,6 +116,7 @@ class SoundtrackChunk:
     """A chunk of soundtrack/background music."""
     duration: float  # seconds
     fade_out: float = DEFAULT_FADE_OUT_DURATION
+    overlay: bool = False  # if True, overlay on previous segment
 
 
 Chunk = Union[TextChunk, SilenceChunk, SoundtrackChunk]
@@ -177,7 +178,8 @@ def parse_tags(text: str, default_voice: str) -> List[Chunk]:
             chunks.append(SilenceChunk(duration=float(silence_seconds)))
         elif match.group(0).lower().startswith('[soundtrack'):
             duration = float(soundtrack_seconds) if soundtrack_seconds else DEFAULT_SOUNDTRACK_DURATION
-            chunks.append(SoundtrackChunk(duration=duration))
+            is_overlay = 'overlay' in match.group(0).lower()
+            chunks.append(SoundtrackChunk(duration=duration, overlay=is_overlay))
         elif voice_id is not None:
             current_voice = voice_id
 
@@ -454,6 +456,28 @@ def load_soundtrack(
         return generate_silence(duration, sample_rate)
 
 
+def overlay_audio(base: np.ndarray, overlay: np.ndarray) -> np.ndarray:
+    """Overlay overlay audio onto base audio.
+
+    Args:
+        base: Base audio array
+        overlay: Audio to overlay
+
+    Returns:
+        Mixed audio
+    """
+    if len(overlay) > len(base):
+        # Extend base if overlay is longer
+        base = np.pad(base, (0, len(overlay) - len(base)), mode='constant')
+    elif len(base) > len(overlay):
+        # Extend overlay if base is longer
+        overlay = np.pad(overlay, (0, len(base) - len(overlay)), mode='constant')
+
+    # Simple mix (average to prevent clipping)
+    mixed = (base + overlay) / 2.0
+    return mixed
+
+
 def process_tagged_text(
     tagged_text: str,
     language: str,
@@ -499,18 +523,27 @@ def process_tagged_text(
             audio_segments.append(('silence', audio))
 
         elif isinstance(chunk, SoundtrackChunk):
-            logger.info(f"  Soundtrack: {chunk.duration}s (fade: {chunk.fade_out}s)")
+            logger.info(f"  Soundtrack: {chunk.duration}s (fade: {chunk.fade_out}s, overlay: {chunk.overlay})")
             audio = load_soundtrack(chunk.duration, chunk.fade_out)
-            audio_segments.append(('soundtrack', audio))
+            audio_segments.append(('soundtrack', audio, chunk.overlay))
 
-    # Combine segments - concatenate all sequentially
+    # Combine segments - handle overlay for soundtracks
     final_audio = None
 
-    for seg_type, audio in audio_segments:
+    for seg in audio_segments:
+        if len(seg) == 3:
+            seg_type, audio, is_overlay = seg
+        else:
+            seg_type, audio = seg
+            is_overlay = False
+
         if final_audio is None:
             final_audio = audio
+        elif is_overlay and seg_type == 'soundtrack':
+            # Overlay soundtrack on the previous segment
+            final_audio = overlay_audio(final_audio, audio)
         else:
-            # Concatenate all segments sequentially (silence, TTS, soundtrack)
+            # Concatenate segments sequentially
             final_audio = np.concatenate([final_audio, audio])
 
     if final_audio is None:
