@@ -123,6 +123,9 @@ Chunk = Union[TextChunk, SilenceChunk, SoundtrackChunk]
 # Viterbox model
 viterbox_model = None
 
+# Speaker conditioning cache: speaker_id -> TTSConds
+speaker_conditionals_cache: dict = {}
+
 def load_model():
     global viterbox_model
     viterbox_model = Viterbox.from_pretrained(
@@ -242,6 +245,48 @@ def get_soundtrack_files() -> List[Path]:
     ]
 
 
+def get_speaker_conditionals(speaker_id: str, exaggeration: float = 0.5):
+    """Get cached speaker conditionals or extract and cache them.
+
+    Args:
+        speaker_id: Speaker identifier
+        exaggeration: Expression intensity (0.0 - 2.0)
+
+    Returns:
+        TTSConds object with speaker embeddings
+    """
+    global viterbox_model, speaker_conditionals_cache
+
+    # Check cache first
+    if speaker_id in speaker_conditionals_cache:
+        logger.debug(f"Using cached conditionals for speaker: {speaker_id}")
+        return speaker_conditionals_cache[speaker_id]
+
+    # Extract and cache
+    ref_path = get_speaker_audio_path(speaker_id)
+    logger.info(f"Extracting conditionals for speaker: {speaker_id}")
+    conditionals = viterbox_model.prepare_conditionals(ref_path, exaggeration=exaggeration)
+    speaker_conditionals_cache[speaker_id] = conditionals
+
+    logger.info(f"Cached conditionals for speaker: {speaker_id} (cache size: {len(speaker_conditionals_cache)})")
+    return conditionals
+
+
+def clear_speaker_cache(speaker_id: str = None):
+    """Clear speaker cache.
+
+    Args:
+        speaker_id: Specific speaker to clear, or None to clear all
+    """
+    global speaker_conditionals_cache
+    if speaker_id is not None:
+        speaker_conditionals_cache.pop(speaker_id, None)
+        logger.info(f"Cleared cache for speaker: {speaker_id}")
+    else:
+        speaker_conditionals_cache.clear()
+        logger.info("Cleared all speaker caches")
+
+
 def apply_fade(audio: np.ndarray, fade_in_ms: int, fade_out_ms: int, sample_rate: int) -> np.ndarray:
     """Apply fade-in and fade-out to audio to prevent clicks.
 
@@ -291,7 +336,8 @@ def synthesize_text_chunk(
     text: str,
     speaker_id: str,
     language: str,
-    temperature: float = 0.8
+    temperature: float = 0.8,
+    exaggeration: float = 0.5
 ) -> np.ndarray:
     """Generate TTS audio for a text chunk with fade and padding.
 
@@ -300,6 +346,7 @@ def synthesize_text_chunk(
         speaker_id: Voice ID
         language: Language code
         temperature: Sampling temperature
+        exaggeration: Expression intensity (0.0 - 2.0)
 
     Returns:
         Audio array with padding and fade applied
@@ -311,17 +358,16 @@ def synthesize_text_chunk(
     if alpha_count < 2:
         return generate_silence(TTS_PADDING_SECONDS * 2)
 
-    # Get reference audio path
-    ref_path = get_speaker_audio_path(speaker_id)
-
     # Detect language
     lang_code = lang_detect(text) if language == 'auto' else language_dict.get(language, 'vi')
 
-    # Generate with Viterbox
+    # Get cached conditionals (this extracts and caches if not already cached)
+    conditionals = get_speaker_conditionals(speaker_id, exaggeration=exaggeration)
+
+    # Generate with Viterbox using cached conditionals
     wav_tensor = viterbox_model.generate(
         text=text,
         language=lang_code,
-        audio_prompt=ref_path,
         temperature=temperature,
         cfg_weight=0.5,
         repetition_penalty=2.0,
