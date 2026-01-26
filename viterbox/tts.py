@@ -197,11 +197,11 @@ def vad_trim(audio: np.ndarray, sr: int, margin_s: float = 0.01) -> np.ndarray:
             
         # Use VAD parameters
         timestamps = get_speech_timestamps(
-            wav_tensor, 
-            model, 
-            sampling_rate=vad_sr, 
+            wav_tensor,
+            model,
+            sampling_rate=vad_sr,
             threshold=0.35,  # Relax threshold as we fixed the root cause
-            min_speech_duration_ms=250, 
+            min_speech_duration_ms=100,  # Lower for short utterances
             min_silence_duration_ms=100
         )
         
@@ -210,21 +210,21 @@ def vad_trim(audio: np.ndarray, sr: int, margin_s: float = 0.01) -> np.ndarray:
             # Sometimes VAD misses breathy endings. Let's fallback to energy trim
             return trim_silence(audio, sr, top_db=25)
             
-        # Get end of last speech chunk
+        # Trim both start and end based on VAD timestamps
+        first_start_sample_16k = timestamps[0]['start']
         last_end_sample_16k = timestamps[-1]['end']
-        
+
         # Convert back to original sample rate
+        first_start_sample = int(first_start_sample_16k * (sr / vad_sr))
         last_end_sample = int(last_end_sample_16k * (sr / vad_sr))
-        
+
         # Add margin
         margin_samples = int(margin_s * sr)
-        cut_point = last_end_sample + margin_samples
-        
-        # Don't cut beyond length
-        cut_point = min(cut_point, len(audio))
-        
-        # Trim
-        return audio[:cut_point]
+        start_point = max(0, first_start_sample - margin_samples)
+        end_point = min(len(audio), last_end_sample + margin_samples)
+
+        # Trim both ends
+        return audio[start_point:end_point]
         
     except Exception as e:
         print(f"⚠️ VAD Error: {e}")
@@ -674,7 +674,8 @@ class Viterbox:
             
             # FIX (Root Cause): Remove the last token which often contains noise/transients
             # causing click artifacts in S3 generation.
-            if len(speech_tokens) > 1:
+            # Only drop for longer sequences to avoid corrupting short speech.
+            if len(speech_tokens) > 10:
                 speech_tokens = speech_tokens[:-1]
                 
             speech_tokens = speech_tokens.to(self.device)

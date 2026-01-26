@@ -266,9 +266,15 @@ class S3Token2Wav(S3Token2Mel):
 
         if not self.training:
             # NOTE: ad-hoc method to reduce "spillover" from the reference clip.
-            output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
-            # Apply fade-out to prevent click artifacts at end
-            output_wavs[:, -len(self.fade_out):] *= self.fade_out
+            # Only apply fades if audio is long enough to avoid overlap corruption
+            audio_len = output_wavs.shape[1]
+            min_len_for_fades = len(self.trim_fade) + len(self.fade_out)
+            if audio_len >= min_len_for_fades:
+                output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
+                output_wavs[:, -len(self.fade_out):] *= self.fade_out
+            elif audio_len > len(self.fade_out):
+                # At least apply fade-out for short audio
+                output_wavs[:, -len(self.fade_out):] *= self.fade_out
 
         return output_wavs
 
@@ -307,8 +313,14 @@ class S3Token2Wav(S3Token2Mel):
         output_wavs, output_sources = self.hift_inference(output_mels, cache_source)
 
         # NOTE: ad-hoc method to reduce "spillover" from the reference clip.
-        output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
-        # Apply fade-out to prevent click artifacts at end
-        output_wavs[:, -len(self.fade_out):] *= self.fade_out
+        # Only apply fades if audio is long enough to avoid overlap corruption
+        audio_len = output_wavs.shape[1]
+        min_len_for_fades = len(self.trim_fade) + len(self.fade_out)
+        if audio_len >= min_len_for_fades:
+            output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
+            output_wavs[:, -len(self.fade_out):] *= self.fade_out
+        elif audio_len > len(self.fade_out):
+            # At least apply fade-out for short audio
+            output_wavs[:, -len(self.fade_out):] *= self.fade_out
 
         return output_wavs, output_sources
