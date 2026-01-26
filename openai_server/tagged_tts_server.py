@@ -446,7 +446,7 @@ def synthesize_text_chunk(
     speaker_id: str,
     language: str,
     temperature: float = 0.8,
-    exaggeration: float = 0.5
+    exaggeration: float = 0.7
 ) -> np.ndarray:
     """Generate TTS audio for a text chunk with fade and padding.
 
@@ -495,7 +495,7 @@ def synthesize_text_chunk(
         text=text,
         language=lang_code,
         temperature=temperature,
-        cfg_weight=0.5,
+        cfg_weight=0.3,
         repetition_penalty=2.0,
         split_sentences=False,
         sentence_pause_ms=500,

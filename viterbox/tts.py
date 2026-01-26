@@ -252,8 +252,8 @@ def apply_fade_out(audio: np.ndarray, sr: int, fade_duration: float = 0.01) -> n
     if fade_samples <= 0:
         return audio
     
-    # Create fade-out curve (linear)
-    fade_curve = np.linspace(1.0, 0.0, fade_samples)
+    # Create fade-out curve (cosine for smoother transition)
+    fade_curve = (np.cos(np.linspace(0, np.pi, fade_samples)) + 1) / 2
     
     # Apply fade to end of audio
     audio_copy = audio.copy()
@@ -283,8 +283,8 @@ def apply_fade_in(audio: np.ndarray, sr: int, fade_duration: float = 0.005) -> n
     if fade_samples <= 0:
         return audio
 
-    # Create fade-in curve (linear)
-    fade_curve = np.linspace(0.0, 1.0, fade_samples)
+    # Create fade-in curve (cosine for smoother transition)
+    fade_curve = (np.cos(np.linspace(np.pi, 0, fade_samples)) + 1) / 2
 
     # Apply fade to start of audio
     audio_copy = audio.copy()
@@ -389,9 +389,9 @@ def crossfade_concat(audios: List[np.ndarray], sr: int, fade_ms: int = 50, pause
             result = np.concatenate([result, next_audio])
             continue
         
-        # Create fade curves
-        fade_out = np.linspace(1.0, 0.0, fade_samples)
-        fade_in = np.linspace(0.0, 1.0, fade_samples)
+        # Create fade curves (cosine for smoother transition)
+        fade_out = (np.cos(np.linspace(0, np.pi, fade_samples)) + 1) / 2
+        fade_in = (np.cos(np.linspace(np.pi, 0, fade_samples)) + 1) / 2
         
         # Apply crossfade
         result_end = result[-fade_samples:] * fade_out
@@ -763,8 +763,8 @@ class Viterbox:
                 )
                 
                 # Trim silence using VAD (more precise endpointing)
-                # Keep margin reasonable (50ms) as we prevent clicks at generation level now
-                audio_np = vad_trim(audio_np, self.sr, margin_s=0.05)
+                # Keep margin reasonable (75ms) to prevent cutting trailing transients
+                audio_np = vad_trim(audio_np, self.sr, margin_s=0.075)
                 
                 # Apply fade-out to prevent click at end of each segment
                 audio_np = apply_fade_out(audio_np, self.sr, fade_duration=0.01)  # 10ms fade-out
@@ -800,6 +800,15 @@ class Viterbox:
                 repetition_penalty=repetition_penalty,
             )
 
+            # Trim silence using VAD (consistent with split mode)
+            audio_np = vad_trim(audio_np, self.sr, margin_s=0.075)
+
+            # Apply fade-in to prevent click at start
+            audio_np = apply_fade_in(audio_np, self.sr, fade_duration=0.005)
+
+            # Apply fade-out to prevent click at end
+            audio_np = apply_fade_out(audio_np, self.sr, fade_duration=0.015)
+
             # Apply dereverberation if enabled
             if dereverberation:
                 audio_np = apply_dereverberation(audio_np, self.sr, strength=dereverberation_strength)
@@ -821,5 +830,7 @@ class Viterbox:
         
         if trim_silence:
             audio_np, _ = librosa.effects.trim(audio_np, top_db=30)
-        
+            # Apply fade-out after trimming to ensure clean ending
+            audio_np = apply_fade_out(audio_np, self.sr, fade_duration=0.01)
+
         sf.write(str(path), audio_np, self.sr)

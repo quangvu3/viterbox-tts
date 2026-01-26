@@ -242,6 +242,11 @@ class S3Token2Wav(S3Token2Mel):
         trim_fade[n_trim:] = (torch.cos(torch.linspace(torch.pi, 0, n_trim)) + 1) / 2
         self.register_buffer("trim_fade", trim_fade, persistent=False) # (buffers get automatic device casting)
 
+        # Fade-out buffer to prevent click artifacts at end of audio
+        n_fade_out = S3GEN_SR // 100  # 10ms
+        fade_out = (torch.cos(torch.linspace(0, torch.pi, n_fade_out)) + 1) / 2
+        self.register_buffer("fade_out", fade_out, persistent=False)
+
     def forward(
         self,
         speech_tokens,
@@ -262,6 +267,8 @@ class S3Token2Wav(S3Token2Mel):
         if not self.training:
             # NOTE: ad-hoc method to reduce "spillover" from the reference clip.
             output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
+            # Apply fade-out to prevent click artifacts at end
+            output_wavs[:, -len(self.fade_out):] *= self.fade_out
 
         return output_wavs
 
@@ -301,5 +308,7 @@ class S3Token2Wav(S3Token2Mel):
 
         # NOTE: ad-hoc method to reduce "spillover" from the reference clip.
         output_wavs[:, :len(self.trim_fade)] *= self.trim_fade
+        # Apply fade-out to prevent click artifacts at end
+        output_wavs[:, -len(self.fade_out):] *= self.fade_out
 
         return output_wavs, output_sources
