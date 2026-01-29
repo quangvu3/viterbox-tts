@@ -703,7 +703,7 @@ def synthesize_speech(input_text, speaker_id, temperature=0.8, language='vi'):
         language=lang_code,
         audio_prompt=ref_path,
         temperature=temperature,
-        cfg_weight=0.5,
+        cfg_weight=0.3,
         repetition_penalty=2.0,
         split_sentences=True,
         sentence_pause_ms=500,
