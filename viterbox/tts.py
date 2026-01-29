@@ -122,12 +122,17 @@ def normalize_text(text: str, language: str = "vi") -> str:
     return text
 
 
-def _split_text_to_sentences(text: str) -> List[str]:
-    """Split text into sentences by punctuation marks."""
+def _split_text_to_sentences(text: str, max_characters: int = 150) -> List[str]:
+    """Split text into sentences by punctuation marks, with smart chunking for long sentences.
+
+    Args:
+        text: Input text to split
+        max_characters: Maximum characters per chunk (default: 150)
+    """
     # Split by . ? ! and keep the delimiter
     pattern = r'([.?!]+)'
     parts = re.split(pattern, text)
-    
+
     sentences = []
     current = ""
     for i, part in enumerate(parts):
@@ -135,16 +140,52 @@ def _split_text_to_sentences(text: str) -> List[str]:
             # This is punctuation, append to current sentence
             current += part
             if current.strip():
-                sentences.append(current.strip())
+                sentences.extend(_split_long_chunk(current.strip(), max_characters))
             current = ""
         else:
-            current = part
-    
+            current = current + part if current else part
+
     # Don't forget remaining text without ending punctuation
     if current.strip():
-        sentences.append(current.strip())
-    
+        sentences.extend(_split_long_chunk(current.strip(), max_characters))
+
     return [s for s in sentences if s.strip()]
+
+
+def _split_long_chunk(text: str, max_chars: int) -> List[str]:
+    """Split a long text chunk into smaller pieces using smart boundaries.
+
+    Prefers splitting at commas, then spaces. Never splits mid-word.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    result = []
+    remaining = text
+
+    while len(remaining) > max_chars:
+        chunk = remaining[:max_chars]
+
+        # Find the nearest comma in the chunk (prefer this for splitting)
+        last_comma = chunk.rfind(',')
+        if last_comma > max_chars * 0.3:  # Comma should be at least 30% into the chunk
+            split_idx = last_comma + 1  # Include the comma
+        else:
+            # Fall back to nearest space
+            split_idx = chunk.rfind(' ', 0, max_chars)
+            if split_idx == -1:  # No space found, force split at max_chars
+                split_idx = max_chars
+
+        piece = remaining[:split_idx].strip()
+        if piece:
+            result.append(piece)
+
+        remaining = remaining[split_idx:].strip()
+
+    if remaining:
+        result.append(remaining)
+
+    return result
 
 
 def trim_silence(audio: np.ndarray, sr: int, top_db: int = 30) -> np.ndarray:
@@ -693,8 +734,8 @@ class Viterbox:
         text: str,
         language: str = "vi",
         audio_prompt: Optional[Union[str, Path, torch.Tensor]] = None,
-        exaggeration: float = 0.5,
-        cfg_weight: float = 0.5,
+        exaggeration: float = 0.75,
+        cfg_weight: float = 0.3,
         temperature: float = 0.8,
         top_p: float = 1.0,
         repetition_penalty: float = 2.0,
