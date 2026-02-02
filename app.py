@@ -204,11 +204,11 @@ with gr.Blocks(
             
             gr.HTML('<div class="section-title" style="margin-top: 0.75rem;">⚙️ Settings</div>')
             
-            exaggeration = gr.Slider(0.0, 2.0, 0.5, step=0.05, label="Exaggeration", info="Expression")
-            
+            exaggeration = gr.Slider(0.0, 2.0, 0.3, step=0.05, label="Exaggeration", info="Expression")
+
             with gr.Row():
-                cfg_weight = gr.Slider(0.0, 1.0, 0.5, step=0.05, label="CFG Weight", info="Voice adherence")
-                temperature = gr.Slider(0.1, 1.0, 0.8, step=0.05, label="Temperature", info="Variation")
+                cfg_weight = gr.Slider(0.0, 1.0, 0.3, step=0.05, label="CFG Weight", info="Voice adherence")
+                temperature = gr.Slider(0.1, 1.0, 0.5, step=0.05, label="Temperature", info="Variation")
             
             sentence_pause = gr.Slider(0.0, 2.0, 0.5, step=0.1, label="Sentence Pause (s)", info="Pause between sentences")
 

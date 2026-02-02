@@ -163,9 +163,9 @@ python inference.py \
 | `text` | Văn bản cần đọc | string | (bắt buộc) |
 | `language` | Mã ngôn ngữ | `"vi"`, `"en"` | `"vi"` |
 | `audio_prompt` | Audio mẫu cho voice cloning | path/tensor | `None` |
-| `exaggeration` | Mức độ biểu cảm | 0.0 - 2.0 | 0.5 |
-| `cfg_weight` | Độ bám sát giọng mẫu | 0.0 - 1.0 | 0.5 |
-| `temperature` | Độ ngẫu nhiên/sáng tạo | 0.1 - 1.0 | 0.8 |
+| `exaggeration` | Mức độ biểu cảm | 0.0 - 2.0 | 0.3 |
+| `cfg_weight` | Độ bám sát giọng mẫu | 0.0 - 1.0 | 0.3 |
+| `temperature` | Độ ngẫu nhiên/sáng tạo | 0.1 - 1.0 | 0.5 |
 | `top_p` | Top-p sampling | 0.0 - 1.0 | 0.9 |
 | `repetition_penalty` | Phạt lặp từ | 1.0 - 2.0 | 1.2 |
 | `sentence_pause_ms` | Thời gian ngắt giữa câu | 0 - 2000 | 500 |

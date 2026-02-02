@@ -13,9 +13,9 @@ def main():
     parser.add_argument("--ref", "-r", type=str, default=None, help="Reference audio for voice cloning")
     parser.add_argument("--output", "-o", type=str, default="output.wav", help="Output file path")
     parser.add_argument("--device", "-d", type=str, default="cuda", help="Device (cuda/cpu)")
-    parser.add_argument("--exaggeration", type=float, default=0.5, help="Expression intensity (0.0-2.0)")
-    parser.add_argument("--cfg-weight", type=float, default=0.5, help="CFG weight (0.0-1.0)")
-    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature (0.1-1.0)")
+    parser.add_argument("--exaggeration", type=float, default=0.3, help="Expression intensity (0.0-2.0)")
+    parser.add_argument("--cfg-weight", type=float, default=0.3, help="CFG weight (0.0-1.0)")
+    parser.add_argument("--temperature", type=float, default=0.5, help="Sampling temperature (0.1-1.0)")
     parser.add_argument("--sentence-pause", type=float, default=0.5, help="Pause between sentences in seconds (default 0.5)")
     
     args = parser.parse_args()

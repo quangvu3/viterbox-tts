@@ -132,7 +132,7 @@ def list_available_speakers() -> list:
     return speakers
 
 
-def synthesize_speech(input_text, speaker_id, temperature=0.8, language='vi'):
+def synthesize_speech(input_text, speaker_id, temperature=0.5, language='vi'):
     """Process text and generate audio using Viterbox."""
     global viterbox_model, last_used_speaker_id
 
@@ -180,7 +180,7 @@ def synthesize_speech(input_text, speaker_id, temperature=0.8, language='vi'):
     return (viterbox_model.sr, wav_array)
 
 
-def inference(input_text, language, speaker_id=None, temperature=0.8, sentence_silence_ms=500):
+def inference(input_text, language, speaker_id=None, temperature=0.5, sentence_silence_ms=500):
     """
     Generate speech from text using Viterbox.
 
@@ -238,7 +238,7 @@ def inference(input_text, language, speaker_id=None, temperature=0.8, sentence_s
                 language=sentence_lang,
                 audio_prompt=ref_path,
                 temperature=temperature,
-                cfg_weight=0.5,
+                cfg_weight=0.3,
                 repetition_penalty=2.0,
                 split_sentences=True,
                 sentence_pause_ms=sentence_silence_ms if i < len(sentences) - 1 else 0,

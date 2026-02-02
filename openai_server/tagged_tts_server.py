@@ -260,7 +260,7 @@ def get_soundtrack_files() -> List[Path]:
     ]
 
 
-def get_speaker_conditionals(speaker_id: str, exaggeration: float = 0.5):
+def get_speaker_conditionals(speaker_id: str, exaggeration: float = 0.3):
     """Get cached speaker conditionals or extract and cache them.
 
     Args:
@@ -445,8 +445,8 @@ def synthesize_text_chunk(
     text: str,
     speaker_id: str,
     language: str,
-    temperature: float = 0.8,
-    exaggeration: float = 0.7
+    temperature: float = 0.5,
+    exaggeration: float = 0.3
 ) -> np.ndarray:
     """Generate TTS audio for a text chunk with fade and padding.
 
@@ -606,7 +606,7 @@ def process_tagged_text(
     tagged_text: str,
     language: str,
     default_voice: str,
-    temperature: float = 0.8
+    temperature: float = 0.5
 ) -> Tuple[np.ndarray, int]:
     """Process tagged text and generate audio.
 
@@ -683,7 +683,7 @@ def process_tagged_text(
     return final_audio, DEFAULT_SAMPLE_RATE
 
 
-def synthesize_speech(input_text, speaker_id, temperature=0.8, language='vi'):
+def synthesize_speech(input_text, speaker_id, temperature=0.5, language='vi'):
     """Process text and generate audio using Viterbox."""
     global viterbox_model
 
@@ -737,7 +737,7 @@ async def handle_speech_request(request):
         text_to_speak = request_data.get('text')
         language = request_data.get('language', 'Tiếng Việt')
         speaker_id = request_data.get('speaker', last_used_speaker_id)
-        temperature = request_data.get('temperature', 0.8)
+        temperature = request_data.get('temperature', 0.5)
 
         if not text_to_speak:
             return web.json_response({"error": "Missing or 'text' field"}, status=400)
