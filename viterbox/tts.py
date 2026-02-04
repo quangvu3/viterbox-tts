@@ -23,13 +23,7 @@ from .models.s3tokenizer import S3_SR, drop_invalid_tokens
 from .models.voice_encoder import VoiceEncoder
 from .models.tokenizers import MTLTokenizer
 
-try:
-    from soe_vinorm import SoeNormalizer
-    _normalizer = SoeNormalizer()
-    HAS_VINORM = True
-except ImportError:
-    HAS_VINORM = False
-    _normalizer = None
+from .utils.vietnamese import normalize_vietnamese_text
 
 
 REPO_ID = "dolly-vn/viterbox"
@@ -114,11 +108,8 @@ def punc_norm(text: str) -> str:
 
 def normalize_text(text: str, language: str = "vi") -> str:
     """Normalize Vietnamese text (numbers, abbreviations, etc.)"""
-    if language == "vi" and HAS_VINORM and _normalizer is not None:
-        try:
-            return _normalizer.normalize(text)
-        except Exception:
-            return text
+    if language == "vi":
+        return normalize_vietnamese_text(text)
     return text
 
 

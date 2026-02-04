@@ -9,7 +9,6 @@ scipy>=1.10.0
 soundfile>=0.12.0
 numpy>=1.24.0,<1.26.0
 gradio==5.44.1
-soe-vinorm>=0.3.2
 einops>=0.7.0
 conformer==0.3.2
 s3tokenizer
