@@ -249,7 +249,7 @@ class T3(nn.Module):
         # In order to use the standard HF generate method, we need to extend some methods to inject our custom logic
         # Note the llama-specific logic. Other tfmr types can be added later.
 
-        self.compiled = False
+        # Note: compiled flag is set in __init__ and persists across inference calls
 
         # TODO? synchronize the expensive compile function
         # with self.compile_lock:
