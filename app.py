@@ -55,7 +55,7 @@ print("=" * 50)
 
 def list_voices() -> list[str]:
     """List available voice files"""
-    wav_dir = Path("wavs")
+    wav_dir = Path("speakers")
     if wav_dir.exists():
         return sorted([str(f) for f in wav_dir.glob("*.wav")])
     return []

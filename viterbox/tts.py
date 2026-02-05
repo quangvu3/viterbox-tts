@@ -26,8 +26,8 @@ from .models.tokenizers import MTLTokenizer
 from .utils.vietnamese import normalize_vietnamese_text
 
 
-REPO_ID = "dolly-vn/viterbox"
-WAVS_DIR = Path("wavs")
+REPO_ID = "jimmyvu/viterbox"
+WAVS_DIR = Path("speakers")
 
 
 # Global VAD model
