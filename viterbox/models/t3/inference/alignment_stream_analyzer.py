@@ -75,17 +75,22 @@ class AlignmentStreamAnalyzer:
             self.last_aligned_attn = step_attention[0].mean(0) # (N, N)
 
         target_layer = tfmr.layers[alignment_layer_idx].self_attn
-        hook_handle = target_layer.register_forward_hook(attention_forward_hook)
 
-        # Backup original forward BEFORE patching to avoid closure capturing patched method
-        original_forward = target_layer.forward.__func__ if isinstance(target_layer.forward, MethodType) else target_layer.forward
+        # Remove previous hook if one exists (allows re-creating analyzer with fresh hook)
+        if hasattr(target_layer, '_attn_spy_hook'):
+            target_layer._attn_spy_hook.remove()
+        target_layer._attn_spy_hook = target_layer.register_forward_hook(attention_forward_hook)
 
-        def patched_forward(self, *args, **kwargs):
-            kwargs['output_attentions'] = True
-            return original_forward(self, *args, **kwargs)
+        # Only patch forward ONCE to prevent infinite recursion from stacking wrappers
+        if not hasattr(target_layer, '_attn_spy_patched'):
+            original_forward = target_layer.forward.__func__ if isinstance(target_layer.forward, MethodType) else target_layer.forward
 
-        # TODO: how to unpatch it?
-        target_layer.forward = MethodType(patched_forward, target_layer)
+            def patched_forward(self, *args, **kwargs):
+                kwargs['output_attentions'] = True
+                return original_forward(self, *args, **kwargs)
+
+            target_layer.forward = MethodType(patched_forward, target_layer)
+            target_layer._attn_spy_patched = True
 
     def step(self, logits):
         """
