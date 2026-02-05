@@ -44,3 +44,6 @@ outputs/
 # MacOS
 *.DS_Store
 pretrained/
+
+#notebooks
+notebooks/
