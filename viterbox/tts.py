@@ -4,6 +4,7 @@ Based on Chatterbox architecture, fine-tuned for Vietnamese.
 """
 import os
 import re
+import hashlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,6 +13,7 @@ import librosa
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Union, List
+from collections import OrderedDict
 
 from huggingface_hub import snapshot_download
 from safetensors.torch import load_file as load_safetensors
@@ -522,6 +524,9 @@ class Viterbox:
         self.device = device
         self.sr = 24000  # Output sample rate
         self.conds: Optional[TTSConds] = None
+        # LRU cache for conditionals (max 10 speakers)
+        self._conds_cache: OrderedDict[str, TTSConds] = OrderedDict()
+        self._MAX_CACHE_SIZE = 10
         
     @classmethod
     def from_pretrained(cls, device: str = "cuda") -> 'Viterbox':
@@ -610,15 +615,56 @@ class Viterbox:
             model.conds = TTSConds.load(conds_path, device)
         
         return model
-    
+
+    def _conds_cache_key(self, audio_prompt: Union[str, Path, torch.Tensor], exaggeration: float) -> str:
+        """Generate cache key from speaker embedding (not path, which may be unreliable)."""
+        # Load and resample audio first (needed to get embedding)
+        if isinstance(audio_prompt, (str, Path)):
+            wav, _ = librosa.load(str(audio_prompt), sr=S3GEN_SR, mono=True)
+        else:
+            wav = audio_prompt.cpu().numpy()
+            if wav.ndim > 1:
+                wav = wav.squeeze()
+        ref_16k_wav = librosa.resample(wav, orig_sr=S3GEN_SR, target_sr=S3_SR)
+
+        # Get speaker embedding as stable identifier
+        with torch.inference_mode():
+            ve_embed = self.ve.embeds_from_wavs([ref_16k_wav[:S3_SR * 10]], sample_rate=S3_SR)
+        ve_embed = ve_embed.mean(axis=0)  # Shape: (256,)
+
+        # Hash the embedding bytes + exaggeration
+        key = f"{exaggeration:.2f}_" + hashlib.md5(ve_embed.tobytes()).hexdigest()
+        return key
+
+    def _get_cached_conds(self, key: str) -> Optional[TTSConds]:
+        """Get cached conditionals, moving to end (LRU)."""
+        if key in self._conds_cache:
+            self._conds_cache.move_to_end(key)
+            return self._conds_cache[key]
+        return None
+
+    def _set_cached_conds(self, key: str, conds: TTSConds):
+        """Store conditionals with LRU eviction."""
+        self._conds_cache[key] = conds
+        self._conds_cache.move_to_end(key)
+        if len(self._conds_cache) > self._MAX_CACHE_SIZE:
+            self._conds_cache.popitem(last=False)
+
     def prepare_conditionals(self, audio_prompt: Union[str, Path, torch.Tensor], exaggeration: float = 0.5):
         """
         Prepare conditioning from reference audio.
-        
+
         Args:
             audio_prompt: Path to WAV file or audio tensor
             exaggeration: Expression intensity (0.0 - 2.0)
         """
+        # Check cache first
+        cache_key = self._conds_cache_key(audio_prompt, exaggeration)
+        cached = self._get_cached_conds(cache_key)
+        if cached is not None:
+            self.conds = cached
+            return self.conds
+
         # Load audio at S3Gen sample rate (24kHz)
         if isinstance(audio_prompt, (str, Path)):
             s3gen_ref_wav, _ = librosa.load(str(audio_prompt), sr=S3GEN_SR, mono=True)
@@ -658,8 +704,15 @@ class Viterbox:
             ).to(device=self.device)
         
         self.conds = TTSConds(t3=t3_cond, s3=s3_cond, ref_wav=torch.from_numpy(s3gen_ref_wav).unsqueeze(0))
+
+        # Cache the result
+        self._set_cached_conds(cache_key, self.conds)
         return self.conds
-    
+
+    def clear_conds_cache(self):
+        """Clear the conditionals cache."""
+        self._conds_cache.clear()
+
     def _generate_single(
         self,
         text: str,
