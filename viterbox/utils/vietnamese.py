@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 # Dictionary to map numbers to Vietnamese words
 number_to_words = {
@@ -291,22 +292,31 @@ def convert_abbreviations(text):
     """Converts abbreviations like M.A.S.H. to MASH"""
     return re.sub(r"([A-Z]\.){2,}", lambda match: "".join(c for c in match.group(0) if c.isalpha()), text)
 
-def fix_common_grammar_errors(text):
-    text = re.sub(r'\s+', ' ', text)  # Remove extra spaces
-    text = re.sub(r'\s([,;!\?\.])', r'\1', text)  # Remove space before marks
-    # text = re.sub(r'([,\.])(\S)', r'\1 \2', text)  # Add space after punctuation
-    text = ( text.replace("...", ".")
-                .replace("..", ".")
-                .replace("!.", "!")
-                .replace("?.", "?")
-                .replace("( ", "(")
-                .replace(" )", ")")
-                .replace(" ”", "”")
-                .replace("“ ", "“")
-                .replace("“ ”", "")
-                .replace("“”", "")
-            )
-    return text
+def fix_common_grammar_errors(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    text = text.strip()
+    # Rules applied in order (longer/more specific → earlier)
+    rules = [
+        # Whitespace
+        (r'\s+', ' '),
+        # Punctuation touching previous word
+        (r'\s+([,;:!?.])', r'\1'),
+        # Ellipses & multiple dots
+        (r'\.{2,}','.'),
+        (r'(?<=[.?!])\s*\.+', lambda m: m.group(0)[0]),
+        # Brackets & curly quotes spacing
+        (r'\s+([()“”])', r'\1'),
+        # Empty quote pairs
+        (r'[“”]\s*[“”]', ''),
+    ]
+
+    for pattern, repl in rules:
+        text = re.sub(pattern, repl, text)
+    # Tiny final fixes (very cheap)
+    text = text.replace(' !', '!').replace(' ?', '?')
+
+    return text.strip()
 
 def remove_quotes_and_parentheses(text):
     text = re.sub(r'["“”‘’\'\(\)\{\}]', '', text)
