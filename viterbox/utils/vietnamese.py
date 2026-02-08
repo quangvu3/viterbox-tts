@@ -314,7 +314,7 @@ def fix_common_grammar_errors(text: Optional[str]) -> str:
     for pattern, repl in rules:
         text = re.sub(pattern, repl, text)
     # Tiny final fixes (very cheap)
-    text = text.replace(' !', '!').replace(' ?', '?')
+    text = text.replace(' !', '!').replace(' ?', '?').replace('…', '. ')
 
     return text.strip()
 
