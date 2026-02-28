@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import tempfile
+import argparse
 from pathlib import Path
 
 import asyncio
@@ -52,6 +53,17 @@ language_dict = {
 
 default_language = 'vi'
 language_codes = list(language_dict.values())
+normalize_text_enabled = True
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Viterbox TTS Server")
+    parser.add_argument(
+        "--no-normalize",
+        action="store_true",
+        help="Disable text normalization before synthesis",
+    )
+    return parser.parse_args()
 
 def lang_detect(text):
     """Detect language from text."""
@@ -134,7 +146,7 @@ def list_available_speakers() -> list:
 
 def synthesize_speech(input_text, speaker_id, temperature=0.5, language='vi'):
     """Process text and generate audio using Viterbox."""
-    global viterbox_model, last_used_speaker_id
+    global viterbox_model, last_used_speaker_id, normalize_text_enabled
 
     start = time.time()
     logger.info(f"Start processing text: {input_text[:30]}... [length: {len(input_text)}]")
@@ -153,11 +165,13 @@ def synthesize_speech(input_text, speaker_id, temperature=0.5, language='vi'):
         audio_prompt=ref_path,
         temperature=temperature,
         cfg_weight=0.3,
-        repetition_penalty=2.0,
+        top_p=0.9,
+        repetition_penalty=1.2,
         split_sentences=True,
         sentence_pause_ms=500,
         dereverberation=True,
         dereverberation_strength=0.5,
+        normalize_text_enabled=normalize_text_enabled,
     )
 
     end = time.time()
@@ -194,7 +208,7 @@ def inference(input_text, language, speaker_id=None, temperature=0.5, sentence_s
     Returns:
         tuple: (final_wav_array, num_of_tokens)
     """
-    global viterbox_model
+    global viterbox_model, normalize_text_enabled
 
     # Bypass text with fewer than 2 alphabetic characters
     alpha_count = sum(1 for c in input_text if c.isalpha()) if input_text else 0
@@ -239,10 +253,12 @@ def inference(input_text, language, speaker_id=None, temperature=0.5, sentence_s
                 audio_prompt=ref_path,
                 temperature=temperature,
                 cfg_weight=0.3,
-                repetition_penalty=2.0,
+                top_p=0.9,
+                repetition_penalty=1.2,
                 split_sentences=True,
                 sentence_pause_ms=sentence_silence_ms if i < len(sentences) - 1 else 0,
                 dereverberation=True,
+                normalize_text_enabled=normalize_text_enabled,
             )
 
             # Convert to numpy
@@ -361,4 +377,7 @@ async def main():
         await runner.cleanup()
 
 if __name__ == '__main__':
+    args = parse_args()
+    normalize_text_enabled = not args.no_normalize
+    logger.info("Text normalization: %s", "enabled" if normalize_text_enabled else "disabled")
     asyncio.run(main())

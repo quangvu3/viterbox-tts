@@ -780,14 +780,15 @@ class Viterbox:
         audio_prompt: Optional[Union[str, Path, torch.Tensor]] = None,
         exaggeration: float = 0.75,
         cfg_weight: float = 0.3,
-        temperature: float = 0.8,
-        top_p: float = 1.0,
-        repetition_penalty: float = 2.0,
+        temperature: float = 0.5,
+        top_p: float = 0.9,
+        repetition_penalty: float = 1.2,
         split_sentences: bool = True,
         crossfade_ms: int = 50,
         sentence_pause_ms: int = 500,
         dereverberation: bool = True,
         dereverberation_strength: float = 0.5,
+        normalize_text_enabled: bool = True,
     ) -> torch.Tensor:
         """
         Generate speech from text.
@@ -806,6 +807,7 @@ class Viterbox:
             sentence_pause_ms: Pause duration between sentences in milliseconds (default 500ms)
             dereverberation: Whether to apply spectral dereverberation (default True)
             dereverberation_strength: Strength of dereverberation (0.0 - 1.0, default 0.5)
+            normalize_text_enabled: Whether to apply Vietnamese text normalization
 
         Returns:
             Audio tensor (1, samples) at 24kHz
@@ -822,7 +824,8 @@ class Viterbox:
                 raise ValueError("No reference audio! Add .wav files to wavs/ folder or provide audio_prompt.")
         
         # Normalize text (convert numbers, abbreviations to words for Vietnamese)
-        text = normalize_text(text, language)
+        if normalize_text_enabled:
+            text = normalize_text(text, language)
         
         if split_sentences:
             # Split text into sentences
