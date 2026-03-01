@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import random
 import tempfile
 import argparse
 from pathlib import Path
@@ -163,8 +164,8 @@ def synthesize_speech(input_text, speaker_id, temperature=0.5, language='vi'):
         text=input_text,
         language=lang_code,
         audio_prompt=ref_path,
-        temperature=temperature,
-        cfg_weight=0.3,
+        temperature=round(random.uniform(0.45, 0.55), 4),
+        cfg_weight=round(random.uniform(0.28, 0.32), 4),
         top_p=0.9,
         repetition_penalty=1.2,
         split_sentences=True,
@@ -251,8 +252,8 @@ def inference(input_text, language, speaker_id=None, temperature=0.5, sentence_s
                 text=sentence,
                 language=sentence_lang,
                 audio_prompt=ref_path,
-                temperature=temperature,
-                cfg_weight=0.3,
+                temperature=round(random.uniform(0.45, 0.55), 4),
+                cfg_weight=round(random.uniform(0.28, 0.32), 4),
                 top_p=0.9,
                 repetition_penalty=1.2,
                 split_sentences=True,
